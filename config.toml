@@ -2,7 +2,7 @@
 name = "PGA Tour"
 
 [email]
-recipients = ["zachgillen@gmail.com"]
+recipients = ["you@gmail.com"]
 subject = "PGA Daily — {date}"
 subject_offseason = "PGA Weekly — {date}"
 transport = "gmail_smtp"
