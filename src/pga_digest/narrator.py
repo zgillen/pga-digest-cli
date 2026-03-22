@@ -1,6 +1,6 @@
 import anthropic
 
-from .config import AppConfig, NarratorConfig
+from .config import AppConfig
 from .datagolf_api import (
     FantasyProjection,
     LeaderboardPlayer,
@@ -9,6 +9,7 @@ from .datagolf_api import (
     Tournament,
 )
 from .feeds import Article
+from .news_search import NewsStory
 
 
 def _fmt_score(score: int) -> str:
@@ -25,6 +26,7 @@ def _build_prompt(
     world_rankings: list[RankedPlayer],
     fantasy_projections: list[FantasyProjection],
     articles: list[Article],
+    news_stories: list[NewsStory],
 ) -> str:
     sections = []
 
@@ -72,9 +74,16 @@ def _build_prompt(
         ]
         sections.append("FANTASY GOLF (DraftKings Top Plays):\n" + "\n".join(fantasy_lines))
 
+    if news_stories:
+        news_lines = [
+            f"  - [{s.title}]({s.url}) — {s.source}: {s.summary}"
+            for s in news_stories
+        ]
+        sections.append("TODAY'S TOP STORIES (from PGATour.com & major golf outlets):\n" + "\n".join(news_lines))
+
     if articles:
-        article_lines = [f"  - {a.title} ({a.source}): {a.summary}" for a in articles[:10]]
-        sections.append("RECENT GOLF NEWS:\n" + "\n".join(article_lines))
+        article_lines = [f"  - {a.title} ({a.source}): {a.summary}" for a in articles[:8]]
+        sections.append("MORE GOLF NEWS (RSS):\n" + "\n".join(article_lines))
 
     return "\n\n".join(sections)
 
@@ -88,6 +97,7 @@ def generate_digest(
     world_rankings: list[RankedPlayer],
     fantasy_projections: list[FantasyProjection],
     articles: list[Article],
+    news_stories: list[NewsStory],
 ) -> str:
     prompt = _build_prompt(
         current_tournament,
@@ -97,6 +107,7 @@ def generate_digest(
         world_rankings,
         fantasy_projections,
         articles,
+        news_stories,
     )
 
     client = anthropic.Anthropic(api_key=config.anthropic_api_key)
@@ -107,6 +118,7 @@ def generate_digest(
         "Cover the leaderboard with color and context, preview upcoming events, highlight fantasy angles, "
         "and surface the most interesting news. Keep it engaging and well-organized. "
         "Use markdown formatting with clear section headers (##). "
+        "In the 'Worth Reading' section, always include the full clickable URLs for each story. "
         "Do not fabricate stats or players — only use the data provided."
     )
 

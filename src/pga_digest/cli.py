@@ -1,7 +1,5 @@
 import argparse
-import smtplib
 from datetime import date
-from email.mime.text import MIMEText
 
 from .config import load_config
 from .datagolf_api import (
@@ -15,6 +13,7 @@ from .datagolf_api import (
 from .emailer import send_email
 from .feeds import fetch_articles
 from .narrator import generate_digest
+from .news_search import fetch_pga_news
 
 
 def main() -> None:
@@ -46,6 +45,12 @@ def main() -> None:
     print("Fetching news articles...")
     articles = fetch_articles(config.feeds.urls)
 
+    print("Searching for today's top PGA Tour stories...")
+    tournament_name = current_tournament.event_name if current_tournament else (
+        upcoming_tournament.event_name if upcoming_tournament else None
+    )
+    news_stories = fetch_pga_news(config.anthropic_api_key, tournament_name)
+
     if args.dry_run:
         print("\n=== RAW DATA ===")
         print(f"Current tournament: {current_tournament}")
@@ -54,7 +59,10 @@ def main() -> None:
         print(f"Pre-tournament picks: {len(pre_tournament_picks)}")
         print(f"World rankings: {len(world_rankings)}")
         print(f"Fantasy projections: {len(fantasy_projections)}")
-        print(f"Articles: {len(articles)}")
+        print(f"RSS articles: {len(articles)}")
+        print(f"News stories found: {len(news_stories)}")
+        for s in news_stories:
+            print(f"  - {s.title} | {s.url}")
         return
 
     print("Generating digest with Claude...")
@@ -67,6 +75,7 @@ def main() -> None:
         world_rankings=world_rankings,
         fantasy_projections=fantasy_projections,
         articles=articles,
+        news_stories=news_stories,
     )
 
     today = date.today().strftime("%B %d, %Y")
