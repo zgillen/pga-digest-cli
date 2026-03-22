@@ -6,7 +6,7 @@ from .config import AppConfig
 
 
 def send_email(config: AppConfig, subject: str, body_markdown: str) -> None:
-body_html = f"<pre>{body_markdown}</pre>"
+    body_html = f"<pre style='font-family: sans-serif; white-space: pre-wrap'>{body_markdown}</pre>"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
