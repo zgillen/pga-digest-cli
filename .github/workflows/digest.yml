@@ -1,0 +1,40 @@
+name: Daily PGA Digest
+
+on:
+  schedule:
+    - cron: "0 12 * * *"  # 8am Eastern every day
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Show raw data only, no email"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    environment: digest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Send digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATAGOLF_API_KEY: ${{ secrets.DATAGOLF_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            pga-digest --dry-run
+          else
+            pga-digest
+          fi

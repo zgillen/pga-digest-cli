@@ -1,0 +1,21 @@
+[tour]
+name = "PGA Tour"
+
+[email]
+recipients = ["zachgillen@gmail.com"]
+subject = "PGA Daily — {date}"
+subject_offseason = "PGA Weekly — {date}"
+transport = "gmail_smtp"
+
+[feeds]
+urls = [
+    "https://www.pgatour.com/content/pgatour/en/news.rss.xml",
+    "https://www.golfchannel.com/rss",
+    "https://www.golfdigest.com/rss/all",
+    "https://www.reddit.com/r/golf/.rss",
+    "https://www.mlbtraderumors.com/feed",
+]
+
+[narrator]
+model = "claude-sonnet-4-6"
+temperature = 0.7

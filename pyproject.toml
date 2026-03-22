@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pga-digest"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.25.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "tomllib; python_version < '3.11'",
+    "tenacity>=8.2.0",
+    "feedparser>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.9.0",
+]
+
+[project.scripts]
+pga-digest = "pga_digest.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pga_digest"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
