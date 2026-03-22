@@ -2,13 +2,11 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-import markdown
-
 from .config import AppConfig
 
 
 def send_email(config: AppConfig, subject: str, body_markdown: str) -> None:
-    body_html = markdown.markdown(body_markdown)
+    body_html = f"<pre style='font-family: sans-serif; white-space: pre-wrap'>{body_markdown}</pre>"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
