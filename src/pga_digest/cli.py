@@ -4,7 +4,6 @@ from datetime import date
 from .config import load_config
 from .datagolf_api import (
     get_current_tournament,
-    get_fantasy_projections,
     get_live_leaderboard,
     get_pre_tournament_picks,
     get_upcoming_tournament,
@@ -26,21 +25,18 @@ def main() -> None:
 
     config = load_config()
 
-    # Test email mode
     if args.command == "test-email":
         print("Sending test email...")
         send_email(config, "PGA Digest — Test Email", "Your PGA Digest email is configured correctly! ⛳")
         print("Test email sent successfully.")
         return
 
-    # Fetch all data
     print("Fetching tournament data...")
     current_tournament = get_current_tournament(config.datagolf_api_key)
     leaderboard = get_live_leaderboard(config.datagolf_api_key) if current_tournament else []
     upcoming_tournament = get_upcoming_tournament(config.datagolf_api_key)
     pre_tournament_picks = get_pre_tournament_picks(config.datagolf_api_key)
     world_rankings = get_world_rankings(config.datagolf_api_key)
-    fantasy_projections = get_fantasy_projections(config.datagolf_api_key)
 
     print("Fetching news articles...")
     articles = fetch_articles(config.feeds.urls)
@@ -58,11 +54,8 @@ def main() -> None:
         print(f"Upcoming tournament: {upcoming_tournament}")
         print(f"Pre-tournament picks: {len(pre_tournament_picks)}")
         print(f"World rankings: {len(world_rankings)}")
-        print(f"Fantasy projections: {len(fantasy_projections)}")
         print(f"RSS articles: {len(articles)}")
         print(f"News stories found: {len(news_stories)}")
-        for s in news_stories:
-            print(f"  - {s.title} | {s.url}")
         return
 
     print("Generating digest with Claude...")
@@ -73,7 +66,6 @@ def main() -> None:
         upcoming_tournament=upcoming_tournament,
         pre_tournament_picks=pre_tournament_picks,
         world_rankings=world_rankings,
-        fantasy_projections=fantasy_projections,
         articles=articles,
         news_stories=news_stories,
     )
