@@ -2,9 +2,20 @@ name: Daily PGA Digest
 
 on:
   schedule:
-    - cron: "0 12 * * *"  # 8am Eastern every day
+    - cron: "0 13 * * *"  # 9am Eastern (UTC-4 in EDT)
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Override mode (blank = auto by day)"
+        required: false
+        type: choice
+        options:
+          - ""
+          - recap
+          - preview
+          - preview_bets
+          - leaderboard
+        default: ""
       dry_run:
         description: "Show raw data only, no email"
         required: false
@@ -33,8 +44,11 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
         run: |
+          ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            pga-digest --dry-run
-          else
-            pga-digest
+            ARGS="$ARGS --dry-run"
           fi
+          if [ -n "${{ inputs.mode }}" ]; then
+            ARGS="$ARGS --mode ${{ inputs.mode }}"
+          fi
+          pga-digest $ARGS
