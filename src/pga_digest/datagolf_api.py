@@ -22,10 +22,10 @@ class Tournament:
 class LeaderboardPlayer:
     player_name: str
     position: int
-    total: int          # score relative to par (e.g. -12)
-    today: int          # today's score relative to par
-    thru: str           # holes completed ("F" if finished)
-    rounds: list[int]   # round-by-round scores
+    total: int
+    today: int
+    thru: str
+    rounds: list[int]
 
 
 @dataclass
@@ -37,21 +37,22 @@ class RankedPlayer:
 
 
 @dataclass
-class FantasyProjection:
-    player_name: str
-    projected_ownership: float
-    projected_score: float
-    win_probability: float
-    top10_probability: float
-
-
-@dataclass
 class PreTournamentPick:
     player_name: str
     win_probability: float
     top5_probability: float
     top10_probability: float
     make_cut_probability: float
+
+
+@dataclass
+class BettingEdge:
+    player_name: str
+    dg_win_pct: float        # DataGolf model win %
+    book_win_pct: float      # Implied % from best available sportsbook odds
+    edge: float              # dg_win_pct - book_win_pct (positive = value)
+    book_odds: str           # Best American odds available
+    book_name: str           # Which sportsbook
 
 
 def _get(api_key: str, path: str, params: dict | None = None) -> dict:
@@ -64,9 +65,30 @@ def _get(api_key: str, path: str, params: dict | None = None) -> dict:
     return resp.json()
 
 
+def _american_to_pct(odds: float) -> float:
+    """Convert American odds to implied win probability."""
+    if odds > 0:
+        return 100 / (odds + 100)
+    else:
+        return abs(odds) / (abs(odds) + 100)
+
+
+def _pct_to_american(pct: float) -> str:
+    """Convert win probability to American odds string."""
+    if pct <= 0:
+        return "N/A"
+    if pct >= 1:
+        return "-∞"
+    if pct > 0.5:
+        odds = round(-(pct / (1 - pct)) * 100)
+        return str(odds)
+    else:
+        odds = round(((1 - pct) / pct) * 100)
+        return f"+{odds}"
+
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
 def get_current_tournament(api_key: str) -> Tournament | None:
-    """Get the current or most recently active tournament."""
     try:
         data = _get(api_key, "preds/in-play", {"tour": "pga"})
         info = data.get("info", {})
@@ -86,11 +108,10 @@ def get_current_tournament(api_key: str) -> Tournament | None:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
 def get_live_leaderboard(api_key: str) -> list[LeaderboardPlayer]:
-    """Get live leaderboard for the current tournament."""
     try:
         data = _get(api_key, "preds/in-play", {"tour": "pga"})
         players = []
-        for p in data.get("data", [])[:20]:  # top 20
+        for p in data.get("data", [])[:20]:
             players.append(
                 LeaderboardPlayer(
                     player_name=p.get("player_name", "Unknown"),
@@ -98,12 +119,7 @@ def get_live_leaderboard(api_key: str) -> list[LeaderboardPlayer]:
                     total=p.get("total", 0),
                     today=p.get("today", 0),
                     thru=str(p.get("thru", "-")),
-                    rounds=[
-                        p.get("R1", 0),
-                        p.get("R2", 0),
-                        p.get("R3", 0),
-                        p.get("R4", 0),
-                    ],
+                    rounds=[p.get("R1", 0), p.get("R2", 0), p.get("R3", 0), p.get("R4", 0)],
                 )
             )
         return sorted(players, key=lambda x: x.position)
@@ -114,7 +130,6 @@ def get_live_leaderboard(api_key: str) -> list[LeaderboardPlayer]:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
 def get_upcoming_tournament(api_key: str) -> Tournament | None:
-    """Get the next upcoming tournament."""
     try:
         data = _get(api_key, "get-schedule", {"tour": "pga", "upcoming_only": "yes"})
         schedule = data.get("schedule", [])
@@ -135,7 +150,6 @@ def get_upcoming_tournament(api_key: str) -> Tournament | None:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
 def get_world_rankings(api_key: str, top_n: int = 10) -> list[RankedPlayer]:
-    """Get current DataGolf world rankings."""
     try:
         data = _get(api_key, "preds/get-dg-rankings")
         rankings = []
@@ -156,7 +170,6 @@ def get_world_rankings(api_key: str, top_n: int = 10) -> list[RankedPlayer]:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
 def get_pre_tournament_picks(api_key: str, top_n: int = 10) -> list[PreTournamentPick]:
-    """Get pre-tournament win probabilities."""
     try:
         data = _get(api_key, "preds/pre-tournament", {"tour": "pga"})
         picks = []
@@ -177,26 +190,150 @@ def get_pre_tournament_picks(api_key: str, top_n: int = 10) -> list[PreTournamen
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
-def get_fantasy_projections(api_key: str, site: str = "draftkings", top_n: int = 10) -> list[FantasyProjection]:
-    """Get fantasy golf projections."""
+def get_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> list[BettingEdge]:
+    """
+    Compare DataGolf win probabilities against sportsbook odds to find value bets.
+    Returns players where DataGolf thinks they're more likely to win than the books imply.
+    """
     try:
         data = _get(
             api_key,
-            "preds/fantasy-projection-defaults",
-            {"tour": "pga", "site": site, "slate": "main"},
+            "betting-tools/outrights",
+            {"tour": "pga", "market": "win", "odds_format": "american"},
         )
-        projections = []
-        for p in data.get("projections", [])[:top_n]:
-            projections.append(
-                FantasyProjection(
-                    player_name=p.get("player_name", "Unknown"),
-                    projected_ownership=float(p.get("proj_ownership", 0)),
-                    projected_score=float(p.get("proj_points", 0)),
-                    win_probability=float(p.get("win", 0)),
-                    top10_probability=float(p.get("top_10", 0)),
+
+        edges = []
+        for p in data.get("odds", []):
+            dg_win = float(p.get("baseline_history_fit", p.get("datagolf_baseline", 0)) or 0)
+            if dg_win <= 0:
+                continue
+
+            # Find best (highest implied %) odds across all books
+            best_book_pct = 0.0
+            best_book_odds = ""
+            best_book_name = ""
+
+            # Books DataGolf tracks
+            books = [
+                "draftkings", "fanduel", "betmgm", "caesars",
+                "pinnacle", "bet365", "bovada", "betonline"
+            ]
+            for book in books:
+                odds_val = p.get(book)
+                if odds_val is None:
+                    continue
+                try:
+                    odds_float = float(odds_val)
+                    implied_pct = _american_to_pct(odds_float)
+                    if implied_pct > best_book_pct:
+                        best_book_pct = implied_pct
+                        best_book_odds = (
+                            f"+{int(odds_float)}" if odds_float > 0 else str(int(odds_float))
+                        )
+                        best_book_name = book.capitalize()
+                except (ValueError, TypeError):
+                    continue
+
+            if best_book_pct <= 0:
+                continue
+
+            edge = dg_win - best_book_pct
+            if edge >= min_edge:
+                edges.append(
+                    BettingEdge(
+                        player_name=p.get("player_name", "Unknown"),
+                        dg_win_pct=dg_win,
+                        book_win_pct=best_book_pct,
+                        edge=edge,
+                        book_odds=best_book_odds,
+                        book_name=best_book_name,
+                    )
                 )
-            )
-        return sorted(projections, key=lambda x: x.projected_score, reverse=True)
+
+        return sorted(edges, key=lambda x: x.edge, reverse=True)[:top_n]
+
     except Exception:
-        logger.warning("Failed to fetch fantasy projections", exc_info=True)
+        logger.warning("Failed to fetch betting edges", exc_info=True)
         return []
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
+def get_live_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> list[BettingEdge]:
+    """
+    During a tournament, compare DataGolf live win probabilities against
+    live sportsbook outright odds to find in-play value.
+    """
+    try:
+        # Get DataGolf live win probabilities
+        live_data = _get(api_key, "preds/in-play", {"tour": "pga", "odds_format": "percent"})
+        live_probs: dict[str, float] = {}
+        for p in live_data.get("data", []):
+            name = p.get("player_name", "")
+            win = p.get("win", 0)
+            if name and win:
+                live_probs[name] = float(win)
+
+        if not live_probs:
+            return []
+
+        # Get current sportsbook outright odds
+        book_data = _get(
+            api_key,
+            "betting-tools/outrights",
+            {"tour": "pga", "market": "win", "odds_format": "american"},
+        )
+
+        edges = []
+        books = [
+            "draftkings", "fanduel", "betmgm", "caesars",
+            "pinnacle", "bet365", "bovada", "betonline"
+        ]
+
+        for p in book_data.get("odds", []):
+            name = p.get("player_name", "")
+            dg_win = live_probs.get(name, 0)
+            if dg_win <= 0:
+                continue
+
+            best_book_pct = 0.0
+            best_book_odds = ""
+            best_book_name = ""
+
+            for book in books:
+                odds_val = p.get(book)
+                if odds_val is None:
+                    continue
+                try:
+                    odds_float = float(odds_val)
+                    implied_pct = _american_to_pct(odds_float)
+                    if implied_pct > best_book_pct:
+                        best_book_pct = implied_pct
+                        best_book_odds = (
+                            f"+{int(odds_float)}" if odds_float > 0 else str(int(odds_float))
+                        )
+                        best_book_name = book.capitalize()
+                except (ValueError, TypeError):
+                    continue
+
+            if best_book_pct <= 0:
+                continue
+
+            edge = dg_win - best_book_pct
+            if edge >= min_edge:
+                edges.append(
+                    BettingEdge(
+                        player_name=name,
+                        dg_win_pct=dg_win,
+                        book_win_pct=best_book_pct,
+                        edge=edge,
+                        book_odds=best_book_odds,
+                        book_name=best_book_name,
+                    )
+                )
+
+        return sorted(edges, key=lambda x: x.edge, reverse=True)[:top_n]
+
+    except Exception:
+        logger.warning("Failed to fetch live betting edges", exc_info=True)
+        return []
+
