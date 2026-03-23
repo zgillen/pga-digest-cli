@@ -2,7 +2,6 @@ import anthropic
 
 from .config import AppConfig
 from .datagolf_api import (
-    FantasyProjection,
     LeaderboardPlayer,
     PreTournamentPick,
     RankedPlayer,
@@ -24,7 +23,6 @@ def _build_prompt(
     upcoming_tournament: Tournament | None,
     pre_tournament_picks: list[PreTournamentPick],
     world_rankings: list[RankedPlayer],
-    fantasy_projections: list[FantasyProjection],
     articles: list[Article],
     news_stories: list[NewsStory],
 ) -> str:
@@ -66,23 +64,15 @@ def _build_prompt(
         ]
         sections.append("WORLD RANKINGS (DataGolf):\n" + "\n".join(rank_lines))
 
-    if fantasy_projections:
-        fantasy_lines = [
-            f"  {p.player_name} — Proj: {p.projected_score:.1f} pts, "
-            f"Ownership: {p.projected_ownership:.1f}%, Win: {p.win_probability:.1%}"
-            for p in fantasy_projections[:8]
-        ]
-        sections.append("FANTASY GOLF (DraftKings Top Plays):\n" + "\n".join(fantasy_lines))
-
     if news_stories:
         news_lines = [
             f"  - [{s.title}]({s.url}) — {s.source}: {s.summary}"
-            for s in news_stories
+            for s in news_stories[:5]
         ]
-        sections.append("TODAY'S TOP STORIES (from PGATour.com & major golf outlets):\n" + "\n".join(news_lines))
+        sections.append("TODAY'S TOP STORIES:\n" + "\n".join(news_lines))
 
     if articles:
-        article_lines = [f"  - {a.title} ({a.source}): {a.summary}" for a in articles[:8]]
+        article_lines = [f"  - {a.title} ({a.source}): {a.summary}" for a in articles[:5]]
         sections.append("MORE GOLF NEWS (RSS):\n" + "\n".join(article_lines))
 
     return "\n\n".join(sections)
@@ -95,7 +85,6 @@ def generate_digest(
     upcoming_tournament: Tournament | None,
     pre_tournament_picks: list[PreTournamentPick],
     world_rankings: list[RankedPlayer],
-    fantasy_projections: list[FantasyProjection],
     articles: list[Article],
     news_stories: list[NewsStory],
 ) -> str:
@@ -105,7 +94,6 @@ def generate_digest(
         upcoming_tournament,
         pre_tournament_picks,
         world_rankings,
-        fantasy_projections,
         articles,
         news_stories,
     )
@@ -115,10 +103,10 @@ def generate_digest(
     system = (
         "You are a knowledgeable, enthusiastic golf writer producing a daily PGA Tour digest email. "
         "Write in a conversational but informed tone — like a friend who really knows golf. "
-        "Cover the leaderboard with color and context, preview upcoming events, highlight fantasy angles, "
-        "and surface the most interesting news. Keep it engaging and well-organized. "
-        "Use markdown formatting with clear section headers (##). "
-        "In the 'Worth Reading' section, always include the full clickable URLs for each story. "
+        "Cover the leaderboard with color and context, preview upcoming events, highlight the most "
+        "interesting news, and always include a 'Worth Reading' section with at least 3 article links. "
+        "Keep it engaging and well-organized. Use markdown formatting with clear section headers (##). "
+        "Always include the full clickable URLs for each story in the Worth Reading section. "
         "Do not fabricate stats or players — only use the data provided."
     )
 
