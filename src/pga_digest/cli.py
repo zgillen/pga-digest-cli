@@ -24,10 +24,9 @@ def get_day_mode() -> str:
     elif day == 1:
         return "preview"
     elif day == 2:
-        return "preview_bets"   # Wednesday — preview + best bets
-    elif day in (3, 4, 5, 6):
-        return "leaderboard"    # Thu-Sun — live leaderboard + live bets
-    return "preview"
+        return "preview_bets"
+    else:
+        return "leaderboard"
 
 
 def main() -> None:
@@ -57,7 +56,6 @@ def main() -> None:
     print("Fetching tournament data...")
     current_tournament = get_current_tournament(config.datagolf_api_key)
     upcoming_tournaments = get_upcoming_tournaments(config.datagolf_api_key)
-    upcoming_tournament = upcoming_tournaments[0] if upcoming_tournaments else None
     world_rankings = get_world_rankings(config.datagolf_api_key)
 
     leaderboard = []
@@ -68,13 +66,11 @@ def main() -> None:
     if mode in ("preview", "preview_bets", "leaderboard"):
         pre_tournament_picks = get_pre_tournament_picks(config.datagolf_api_key)
 
-    # Best bets — Wednesday only (pre-tournament)
     best_bets = []
     if mode == "preview_bets":
         print("Fetching pre-tournament betting edges...")
         best_bets = get_best_bets(config.datagolf_api_key)
 
-    # Live best bets — Thu/Fri/Sat/Sun
     live_best_bets = []
     if mode == "leaderboard":
         print("Fetching live betting edges...")
@@ -93,15 +89,13 @@ def main() -> None:
         print(f"\n=== RAW DATA (mode: {mode}) ===")
         print(f"Current tournament: {current_tournament}")
         print(f"Leaderboard entries: {len(leaderboard)}")
-        print(f"Upcoming tournament: {upcoming_tournament}")
+        print(f"Upcoming tournaments: {[t.event_name for t in upcoming_tournaments]}")
         print(f"Pre-tournament picks: {len(pre_tournament_picks)}")
         print(f"Best bets: {len(best_bets)}")
         print(f"Live best bets: {len(live_best_bets)}")
         print(f"World rankings: {len(world_rankings)}")
         print(f"RSS articles: {len(articles)}")
         print(f"News stories found: {len(news_stories)}")
-        for b in best_bets:
-            print(f"  {b.player_name}: DG {b.dg_win_pct:.1%} vs book {b.book_win_pct:.1%} (edge: {b.edge:.1%}) @ {b.book_odds} {b.book_name}")
         return
 
     print("Generating digest with Claude...")
