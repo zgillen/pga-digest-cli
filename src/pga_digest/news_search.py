@@ -20,7 +20,7 @@ def fetch_pga_news(api_key: str, tournament_name: str | None = None) -> list[New
 
     if tournament_name:
         query = (
-            f"Find the 5 most relevant and recent PGA Tour news stories from today or this week. "
+            f"Find the 3 most relevant and recent PGA Tour news stories from today or this week. "
             f"Focus on stories related to the {tournament_name} and any other major PGA Tour news. "
             f"Search pgatour.com, golfchannel.com, golf.com, golfdigest.com, and espn.com/golf. "
             f"For each story return: title, URL, source name, and a one-sentence summary. "
@@ -30,7 +30,7 @@ def fetch_pga_news(api_key: str, tournament_name: str | None = None) -> list[New
         )
     else:
         query = (
-            f"Find the 5 most relevant and recent PGA Tour news stories from today or this week. "
+            f"Find the 3 most relevant and recent PGA Tour news stories from today or this week. "
             f"Search pgatour.com, golfchannel.com, golf.com, golfdigest.com, and espn.com/golf. "
             f"For each story return: title, URL, source name, and a one-sentence summary. "
             f"Format as a numbered list like:\n"
@@ -41,7 +41,7 @@ def fetch_pga_news(api_key: str, tournament_name: str | None = None) -> list[New
     try:
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1000,
+            max_tokens=500,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": query}],
         )
