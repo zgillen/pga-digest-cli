@@ -139,7 +139,9 @@ def _get_system_prompt(mode: str) -> str:
         "Write in a conversational but informed tone — like a smart friend who really knows golf and betting. "
         "Use markdown formatting with clear section headers (##). "
         "Always include a 'Worth Reading' section at the end with at least 3 clickable article links. "
-        "Use only the schedule data provided — do not assume which tournament follows which based on your training data. "
+        "IMPORTANT: Use ONLY the upcoming schedule data provided to describe what tournaments are coming up and in what order. "
+        "Do NOT use your own knowledge of the golf calendar — it may be outdated or wrong. "
+        "Never skip or omit tournaments that appear in the schedule data. "
         "Do not fabricate stats or players — only use the data provided."
     )
     if mode == "leaderboard":
