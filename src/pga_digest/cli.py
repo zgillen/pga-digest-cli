@@ -8,7 +8,7 @@ from .datagolf_api import (
     get_live_best_bets,
     get_live_leaderboard,
     get_pre_tournament_picks,
-    get_upcoming_tournament,
+    get_upcoming_tournaments,
     get_world_rankings,
 )
 from .emailer import send_email
@@ -56,7 +56,8 @@ def main() -> None:
 
     print("Fetching tournament data...")
     current_tournament = get_current_tournament(config.datagolf_api_key)
-    upcoming_tournament = get_upcoming_tournament(config.datagolf_api_key)
+    upcoming_tournaments = get_upcoming_tournaments(config.datagolf_api_key)
+    upcoming_tournament = upcoming_tournaments[0] if upcoming_tournaments else None
     world_rankings = get_world_rankings(config.datagolf_api_key)
 
     leaderboard = []
@@ -84,7 +85,7 @@ def main() -> None:
 
     print("Searching for today's top PGA Tour stories...")
     tournament_name = current_tournament.event_name if current_tournament else (
-        upcoming_tournament.event_name if upcoming_tournament else None
+        upcoming_tournaments[0].event_name if upcoming_tournaments else None
     )
     news_stories = fetch_pga_news(config.anthropic_api_key, tournament_name)
 
@@ -109,7 +110,7 @@ def main() -> None:
         mode=mode,
         current_tournament=current_tournament,
         leaderboard=leaderboard,
-        upcoming_tournament=upcoming_tournament,
+        upcoming_tournaments=upcoming_tournaments,
         pre_tournament_picks=pre_tournament_picks,
         best_bets=best_bets,
         live_best_bets=live_best_bets,
