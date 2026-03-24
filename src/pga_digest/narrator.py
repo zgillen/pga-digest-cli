@@ -22,7 +22,7 @@ def _build_prompt(
     mode: str,
     current_tournament: Tournament | None,
     leaderboard: list[LeaderboardPlayer],
-    upcoming_tournament: Tournament | None,
+    upcoming_tournaments: list[Tournament],
     pre_tournament_picks: list[PreTournamentPick],
     best_bets: list[BettingEdge],
     live_best_bets: list[BettingEdge],
@@ -69,11 +69,13 @@ def _build_prompt(
             )
 
     elif mode in ("preview", "preview_bets"):
-        if upcoming_tournament:
-            sections.append(
-                f"UPCOMING: {upcoming_tournament.event_name} at {upcoming_tournament.course} "
-                f"starting {upcoming_tournament.start_date}"
-            )
+        if upcoming_tournaments:
+            upcoming_lines = [
+                f"  {t.event_name} at {t.course} — starts {t.start_date}"
+                for t in upcoming_tournaments
+            ]
+            sections.append("UPCOMING SCHEDULE:\n" + "\n".join(upcoming_lines))
+
         if pre_tournament_picks:
             picks_lines = [
                 f"  {p.player_name} — Win: {p.win_probability:.1%}, "
@@ -97,12 +99,17 @@ def _build_prompt(
 
     elif mode == "recap":
         if current_tournament:
-            sections.append(f"LAST WEEK: {current_tournament.event_name} at {current_tournament.course}")
-        if upcoming_tournament:
             sections.append(
-                f"THIS WEEK: {upcoming_tournament.event_name} at {upcoming_tournament.course} "
-                f"starting {upcoming_tournament.start_date} "
-                f"(Note: DataGolf projections release Monday afternoon — full preview + best bets coming Tuesday/Wednesday)"
+                f"LAST WEEK: {current_tournament.event_name} at {current_tournament.course}"
+            )
+        if upcoming_tournaments:
+            upcoming_lines = [
+                f"  {t.event_name} at {t.course} — starts {t.start_date}"
+                for t in upcoming_tournaments
+            ]
+            sections.append(
+                "UPCOMING SCHEDULE (next 3 weeks):\n" + "\n".join(upcoming_lines) +
+                "\n(Note: DataGolf projections release Monday afternoon — full preview + best bets coming Tuesday/Wednesday)"
             )
 
     if world_rankings:
@@ -132,6 +139,7 @@ def _get_system_prompt(mode: str) -> str:
         "Write in a conversational but informed tone — like a smart friend who really knows golf and betting. "
         "Use markdown formatting with clear section headers (##). "
         "Always include a 'Worth Reading' section at the end with at least 3 clickable article links. "
+        "Use only the schedule data provided — do not assume which tournament follows which based on your training data. "
         "Do not fabricate stats or players — only use the data provided."
     )
     if mode == "leaderboard":
@@ -154,11 +162,14 @@ def _get_system_prompt(mode: str) -> str:
         return base + (
             " Today is Tuesday. Preview the upcoming tournament — the course, the favorites, "
             "who's in form based on DataGolf win probabilities, and key storylines to follow. "
-            "Build anticipation for the week ahead."
+            "Use the upcoming schedule provided to accurately describe what tournaments are coming up "
+            "and in what order. Build anticipation for the week ahead."
         )
     else:
         return base + (
             " Today is Monday. Recap last week's tournament and introduce this week's event. "
+            "Use the upcoming schedule provided to accurately describe what's coming up — "
+            "do not assume tournament order from your training data. "
             "Note that full DataGolf projections and best bets will be in Tuesday/Wednesday's emails. "
             "Keep it conversational and set the table for the week."
         )
@@ -169,7 +180,7 @@ def generate_digest(
     mode: str,
     current_tournament: Tournament | None,
     leaderboard: list[LeaderboardPlayer],
-    upcoming_tournament: Tournament | None,
+    upcoming_tournaments: list[Tournament],
     pre_tournament_picks: list[PreTournamentPick],
     best_bets: list[BettingEdge],
     live_best_bets: list[BettingEdge],
@@ -181,7 +192,7 @@ def generate_digest(
         mode,
         current_tournament,
         leaderboard,
-        upcoming_tournament,
+        upcoming_tournaments,
         pre_tournament_picks,
         best_bets,
         live_best_bets,
