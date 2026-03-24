@@ -15,6 +15,7 @@ def _markdown_to_html(md: str) -> str:
     md = re.sub(r"^## (.+)$",  r'<h2>\1</h2>', md, flags=re.MULTILINE)
     md = re.sub(r"^# (.+)$",   r'<h1>\1</h1>', md, flags=re.MULTILINE)
     md = re.sub(r"\*\*(.+?)\*\*", r'<strong>\1</strong>', md)
+    md = re.sub(r"\*([^*\n]+?)\*", r'<em>\1</em>', md)
     md = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', md)
     md = re.sub(r"^---$", r'<hr>', md, flags=re.MULTILINE)
     def replace_list_block(m):
