@@ -73,7 +73,7 @@ def _build_html(body_md: str) -> str:
 
 def _build_text(body_md: str) -> str:
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", body_md)
-    text = re.sub(r"\*(.+?)\*",     r"\1", text)
+    text = re.sub(r"\*([^*\n]+?)\*", r"\1", text)
     text = re.sub(r"\[(.+?)\]\((.+?)\)", r"\1 (\2)", text)
     text = re.sub(r"^#{1,3} ", "", text, flags=re.MULTILINE)
     return text.strip() + "\n\n---\nSources: DataGolf API, RSS feeds. Narrated by Claude Sonnet."
