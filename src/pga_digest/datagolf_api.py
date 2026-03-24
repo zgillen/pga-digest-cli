@@ -337,3 +337,22 @@ def get_live_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> 
         logger.warning("Failed to fetch live betting edges", exc_info=True)
         return []
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
+def get_upcoming_tournaments(api_key: str, next_n: int = 3) -> list[Tournament]:
+    """Get the next several upcoming tournaments so Claude has accurate schedule context."""
+    try:
+        data = _get(api_key, "get-schedule", {"tour": "pga", "upcoming_only": "yes"})
+        schedule = data.get("schedule", [])
+        tournaments = []
+        for t in schedule[:next_n]:
+            tournaments.append(Tournament(
+                event_name=t.get("event_name", "Unknown"),
+                course=t.get("course", "Unknown"),
+                start_date=t.get("date", ""),
+                end_date=t.get("end_date", t.get("date", "")),
+                tour="PGA",
+            ))
+        return tournaments
+    except Exception:
+        logger.warning("Failed to fetch upcoming tournaments", exc_info=True)
+        return []
