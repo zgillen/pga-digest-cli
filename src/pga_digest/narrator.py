@@ -207,7 +207,7 @@ def generate_digest(
 
     message = client.messages.create(
         model=config.narrator.model,
-        max_tokens=2000,
+        max_tokens=3000,
         temperature=config.narrator.temperature,
         system=_get_system_prompt(mode),
         messages=[{"role": "user", "content": f"Here is today's PGA Tour data:\n\n{prompt}\n\nWrite the daily digest email."}],
