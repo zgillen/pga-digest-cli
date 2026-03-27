@@ -2,7 +2,7 @@ name: Daily PGA Digest
 
 on:
   schedule:
-    - cron: "0 13 * * *"  # 9am Eastern (UTC-4 in EDT)
+    - cron: "0 10 * * *"  # 5am Eastern
   workflow_dispatch:
     inputs:
       mode:
