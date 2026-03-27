@@ -38,12 +38,15 @@ def _build_prompt(
             for p in leaderboard[:15]:
                 rounds = [str(r) for r in p.rounds if r != 0]
                 rounds_str = " / ".join(rounds) if rounds else "-"
+                thru_str = f"Thru: {p.thru}" if str(p.thru) not in ("0", "-", "") else "Not yet started today"
                 lb_lines.append(
-                    f"  {p.position}. {p.player_name} — {_fmt_score(p.total)} "
-                    f"(Today: {_fmt_score(p.today)}, Thru: {p.thru}) [{rounds_str}]"
+                    f"  {p.position}. {p.player_name} — {_fmt_score(p.total)} total "
+                    f"(Today: {_fmt_score(p.today)}, {thru_str}) [{rounds_str}]"
                 )
             sections.append(
                 f"LIVE LEADERBOARD: {current_tournament.event_name} at {current_tournament.course}\n"
+                "NOTE: Players showing 'Not yet started today' have only completed Round 1. "
+                "Do not describe them as currently playing or assign them a Round 2 score.\n"
                 + "\n".join(lb_lines)
             )
         else:
@@ -139,78 +142,4 @@ def _get_system_prompt(mode: str) -> str:
         "Write in a conversational but informed tone — like a smart friend who really knows golf and betting. "
         "Use markdown formatting with clear section headers (##). "
         "Always include a 'Worth Reading' section at the end with at least 3 clickable article links. "
-        "IMPORTANT: Use ONLY the upcoming schedule data provided to describe what tournaments are coming up and in what order. "
-        "Do NOT use your own knowledge of the golf calendar — it may be outdated or wrong. "
-        "Never skip or omit tournaments that appear in the schedule data. "
-        "Do not fabricate stats or players — only use the data provided."
-    )
-    if mode == "leaderboard":
-        return base + (
-            " Today is a tournament day (Thursday-Sunday). Lead with the live leaderboard — "
-            "who's leading, who's making a move, who's falling back. Give it energy and drama. "
-            "Then include a 'Best Live Bets' section that explains each betting edge play in plain English: "
-            "why DataGolf likes them, what the value is, and which book has the best odds. "
-            "Keep the betting section punchy and actionable."
-        )
-    elif mode == "preview_bets":
-        return base + (
-            " Today is Wednesday. Preview the upcoming tournament and then include a 'Best Bets' section. "
-            "For each bet, explain in plain English why DataGolf's model likes this player more than "
-            "the books do — course fit, recent form, strokes gained edge. Make it feel like sharp "
-            "handicapping advice, not just a list of numbers. Note that these are DataGolf model edges "
-            "and not guaranteed — always bet responsibly."
-        )
-    elif mode == "preview":
-        return base + (
-            " Today is Tuesday. Preview the upcoming tournament — the course, the favorites, "
-            "who's in form based on DataGolf win probabilities, and key storylines to follow. "
-            "Use the upcoming schedule provided to accurately describe what tournaments are coming up "
-            "and in what order. Build anticipation for the week ahead."
-        )
-    else:
-        return base + (
-            " Today is Monday. Recap last week's tournament and introduce this week's event. "
-            "Use the upcoming schedule provided to accurately describe what's coming up — "
-            "do not assume tournament order from your training data. "
-            "Note that full DataGolf projections and best bets will be in Tuesday/Wednesday's emails. "
-            "Keep it conversational and set the table for the week."
-        )
-
-
-def generate_digest(
-    config: AppConfig,
-    mode: str,
-    current_tournament: Tournament | None,
-    leaderboard: list[LeaderboardPlayer],
-    upcoming_tournaments: list[Tournament],
-    pre_tournament_picks: list[PreTournamentPick],
-    best_bets: list[BettingEdge],
-    live_best_bets: list[BettingEdge],
-    world_rankings: list[RankedPlayer],
-    articles: list[Article],
-    news_stories: list[NewsStory],
-) -> str:
-    prompt = _build_prompt(
-        mode,
-        current_tournament,
-        leaderboard,
-        upcoming_tournaments,
-        pre_tournament_picks,
-        best_bets,
-        live_best_bets,
-        world_rankings,
-        articles,
-        news_stories,
-    )
-
-    client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-
-    message = client.messages.create(
-        model=config.narrator.model,
-        max_tokens=3000,
-        temperature=config.narrator.temperature,
-        system=_get_system_prompt(mode),
-        messages=[{"role": "user", "content": f"Here is today's PGA Tour data:\n\n{prompt}\n\nWrite the daily digest email."}],
-    )
-
-    return message.content[0].text
+        "IMPORTANT: Use ONLY the upcoming schedule data provided to describe what tournaments are coming up and in
