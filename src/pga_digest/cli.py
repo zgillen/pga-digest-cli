@@ -85,6 +85,9 @@ def main() -> None:
     )
     news_stories = fetch_pga_news(config.anthropic_api_key, tournament_name)
 
+    import time
+    time.sleep(60)
+
     if args.dry_run:
         print(f"\n=== RAW DATA (mode: {mode}) ===")
         print(f"Current tournament: {current_tournament}")
