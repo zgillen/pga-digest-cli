@@ -1,181 +1,222 @@
-import json
-import logging
-from collections import OrderedDict
-from dataclasses import asdict
-from typing import Any
-
 import anthropic
 
-from mlb_digest.feeds import Article
-from mlb_digest.mlb_api import DivisionStandings, GameResult, UpcomingGame
-
-logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT_TEMPLATE = (
-    "You are a knowledgeable but casual {team_name} fan writing a morning "
-    "email digest for a friend who doesn't have time to watch every game. "
-    "You are conversational, not a sports anchor. You reference specific "
-    "stats and facts from the data provided.\n"
-    "\n"
-    "CRITICAL RULES:\n"
-    "- ONLY reference facts, stats, and events present in the provided data.\n"
-    "- NEVER invent plays, moments, or descriptions not supported by the data.\n"
-    "- For headlines and storylines, use the RSS article titles and summaries "
-    "provided. Summarize what the articles say - do NOT generate storylines "
-    "from imagination.\n"
-    "- If the data shows a player hit 2-4 with a HR and 3 RBI, you can say "
-    '"went 2-for-4 with a homer and 3 ribbies" - but do NOT invent the '
-    'situation (e.g., "a clutch 2-run shot in the 8th") unless '
-    "inning/situation data is in the input.\n"
-    "- For player descriptions in catchup reports, derive from stats only: "
-    '"leads the team in HRs" not "has a smooth swing."\n'
-    "- When in doubt, state the numbers. Never embellish.\n"
-    "\n"
-    "Output format: Return the digest as markdown. Use ## headers for each "
-    "section. Output the sections in the order they appear in the input data."
+from .config import AppConfig
+from .datagolf_api import (
+    BettingEdge,
+    LeaderboardPlayer,
+    PreTournamentPick,
+    RankedPlayer,
+    Tournament,
 )
+from .feeds import Article
+from .news_search import NewsStory
 
 
-class NarratorError(Exception):
-    pass
+def _fmt_score(score: int) -> str:
+    if score == 0:
+        return "E"
+    return f"+{score}" if score > 0 else str(score)
 
 
-def build_system_prompt(team_name: str) -> str:
-    return SYSTEM_PROMPT_TEMPLATE.format(team_name=team_name)
-
-
-def _articles_to_dicts(articles: list[Article]) -> list[dict[str, str]]:
-    return [
-        {"title": a.title, "summary": a.summary, "link": a.link, "source": a.source}
-        for a in articles
-    ]
-
-
-def build_prompt(
-    team_name: str,
-    yesterday_game: GameResult | None,
-    today_game: UpcomingGame | None,
-    standings: list[DivisionStandings],
-    team_articles: list[Article],
-    mlb_articles: list[Article],
-    top_players: dict[str, list[dict[str, Any]]] | None,
-    catchup: bool = False,
-    roster_data: list[dict[str, Any]] | None = None,
+def _build_prompt(
+    mode: str,
+    current_tournament: Tournament | None,
+    leaderboard: list[LeaderboardPlayer],
+    upcoming_tournaments: list[Tournament],
+    pre_tournament_picks: list[PreTournamentPick],
+    best_bets: list[BettingEdge],
+    live_best_bets: list[BettingEdge],
+    world_rankings: list[RankedPlayer],
+    articles: list[Article],
+    news_stories: list[NewsStory],
 ) -> str:
-    sections: OrderedDict[str, dict] = OrderedDict()
+    sections = []
 
-    if mlb_articles:
-        sections["around_the_league"] = {
-            "instruction": (
-                "Summarize these MLB headlines into a few bullet points. "
-                "Use the article titles and summaries - do not invent storylines."
-            ),
-            "articles": _articles_to_dicts(mlb_articles),
-        }
-
-    if yesterday_game:
-        sections["last_nights_game"] = {
-            "instruction": (
-                f"Write a detailed recap of {team_name}'s game from last night. "
-                "This should be at least 3-4 paragraphs. Cover: the final score and "
-                "overall flow of the game, standout hitting performances (highlight any "
-                "player who went 2-for-4 or better, hit a home run, drove in runs, or "
-                "had a multi-hit game — be specific about their stats), pitching "
-                "performance (starter and any notable relievers), and the overall "
-                "takeaway from the game. If the team won, celebrate the contributors. "
-                "If they lost, be honest but constructive. "
-                "Do not invent plays not in the data."
-            ),
-            "data": asdict(yesterday_game),
-        }
-
-    if today_game:
-        sections["todays_game"] = {
-            "instruction": (
-                f"Preview {team_name}'s game today. "
-                "Mention the opponent, time, and starting pitchers."
-            ),
-            "data": asdict(today_game),
-        }
-
-    if team_articles:
-        sections["storylines"] = {
-            "instruction": (
-                f"Write {team_name} storylines based on these articles. "
-                "Summarize what the articles say. "
-                "Supplement with standings data if relevant."
-            ),
-            "articles": _articles_to_dicts(team_articles),
-        }
-
-    if standings:
-        standings_section: dict = {
-            "instruction": (
-                f"Show a single combined league standings table covering ALL teams "
-                f"in both the AL and NL. Format as one markdown table with columns: "
-                f"Team | W | L | GB. Sort by wins descending. Do not split by division. "
-                f"Then write a short paragraph highlighting {team_name}'s position "
-                f"and anything notable in the standings."
-            ),
-            "data": [asdict(d) for d in standings],
-        }
-        if top_players:
-            standings_section["top_players"] = top_players
-            standings_section["instruction"] += (
-                f" Also include top hitters (by AVG) and top pitchers (by ERA) for {team_name}."
+    if mode == "leaderboard":
+        if current_tournament and leaderboard:
+            lb_lines = []
+            for p in leaderboard[:15]:
+                rounds = [str(r) for r in p.rounds if r != 0]
+                rounds_str = " / ".join(rounds) if rounds else "-"
+                thru_str = f"Thru: {p.thru}" if str(p.thru) not in ("0", "-", "") else "Not yet started today"
+                lb_lines.append(
+                    f"  {p.position}. {p.player_name} — {_fmt_score(p.total)} total "
+                    f"(Today: {_fmt_score(p.today)}, {thru_str}) [{rounds_str}]"
+                )
+            sections.append(
+                f"LIVE LEADERBOARD: {current_tournament.event_name} at {current_tournament.course}\n"
+                "NOTE: Players showing 'Not yet started today' have only completed Round 1. "
+                "Do not describe them as currently playing or assign them a Round 2 score.\n"
+                + "\n".join(lb_lines)
             )
-        sections["standings_snapshot"] = standings_section
+        else:
+            sections.append("No tournament currently in progress.")
 
-    if catchup and roster_data:
-        sections["roster"] = {
-            "instruction": (
-                f"Introduce the {team_name} roster. "
-                "Describe each player based on their stats - "
-                "do not invent scouting descriptions."
-            ),
-            "data": roster_data,
-        }
+        if pre_tournament_picks:
+            picks_lines = [
+                f"  {p.player_name} — Win: {p.win_probability:.1%}, Top 10: {p.top10_probability:.1%}"
+                for p in pre_tournament_picks[:5]
+            ]
+            sections.append("PRE-TOURNAMENT FAVORITES (for context):\n" + "\n".join(picks_lines))
 
-    if team_articles or mlb_articles:
-        all_for_reading = team_articles[:2] + mlb_articles[:2]
-        sections["worth_reading"] = {
-            "instruction": (
-                "List these articles with title, source, link, and a one-line summary each."
-            ),
-            "articles": _articles_to_dicts(all_for_reading),
-        }
+        if live_best_bets:
+            bet_lines = [
+                f"  {b.player_name} — DG Model: {b.dg_win_pct:.1%} | "
+                f"Best Book: {b.book_odds} ({b.book_name}, implied {b.book_win_pct:.1%}) | "
+                f"Edge: +{b.edge:.1%}"
+                for b in live_best_bets
+            ]
+            sections.append(
+                "LIVE BETTING EDGES (DataGolf model vs current sportsbook odds):\n"
+                + "\n".join(bet_lines)
+            )
 
-    return json.dumps(sections, indent=2)
+    elif mode in ("preview", "preview_bets"):
+        if upcoming_tournaments:
+            upcoming_lines = [
+                f"  {t.event_name} at {t.course} — starts {t.start_date}"
+                for t in upcoming_tournaments
+            ]
+            sections.append("UPCOMING SCHEDULE:\n" + "\n".join(upcoming_lines))
+
+        if pre_tournament_picks:
+            picks_lines = [
+                f"  {p.player_name} — Win: {p.win_probability:.1%}, "
+                f"Top 5: {p.top5_probability:.1%}, Top 10: {p.top10_probability:.1%}, "
+                f"Make Cut: {p.make_cut_probability:.1%}"
+                for p in pre_tournament_picks[:10]
+            ]
+            sections.append("DATAGOLF WIN PROBABILITIES:\n" + "\n".join(picks_lines))
+
+        if best_bets:
+            bet_lines = [
+                f"  {b.player_name} — DG Model: {b.dg_win_pct:.1%} | "
+                f"Best Book: {b.book_odds} ({b.book_name}, implied {b.book_win_pct:.1%}) | "
+                f"Edge: +{b.edge:.1%}"
+                for b in best_bets
+            ]
+            sections.append(
+                "BEST BETS (DataGolf model vs sportsbook odds — positive edge plays):\n"
+                + "\n".join(bet_lines)
+            )
+
+    elif mode == "recap":
+        if current_tournament:
+            sections.append(
+                f"LAST WEEK: {current_tournament.event_name} at {current_tournament.course}"
+            )
+        if upcoming_tournaments:
+            upcoming_lines = [
+                f"  {t.event_name} at {t.course} — starts {t.start_date}"
+                for t in upcoming_tournaments
+            ]
+            sections.append(
+                "UPCOMING SCHEDULE (next 3 weeks):\n" + "\n".join(upcoming_lines) +
+                "\n(Note: DataGolf projections release Monday afternoon — full preview + best bets coming Tuesday/Wednesday)"
+            )
+
+    if world_rankings:
+        rank_lines = [
+            f"  {p.rank}. {p.player_name} ({p.country})"
+            for p in world_rankings[:10]
+        ]
+        sections.append("WORLD RANKINGS (DataGolf):\n" + "\n".join(rank_lines))
+
+    if news_stories:
+        news_lines = [
+            f"  - [{s.title}]({s.url}) — {s.source}: {s.summary}"
+            for s in news_stories[:5]
+        ]
+        sections.append("TODAY'S TOP STORIES:\n" + "\n".join(news_lines))
+
+    if articles:
+        article_lines = [f"  - {a.title} ({a.source}): {a.summary}" for a in articles[:5]]
+        sections.append("MORE GOLF NEWS (RSS):\n" + "\n".join(article_lines))
+
+    return "\n\n".join(sections)
 
 
-def generate_narrative(
-    prompt: str,
-    system_prompt: str,
-    api_key: str,
-    model: str,
-    temperature: float,
-    max_tokens: int = 4096,
-) -> str:
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system_prompt,
-            messages=[{"role": "user", "content": prompt}],
+def _get_system_prompt(mode: str) -> str:
+    base = (
+        "You are a knowledgeable, enthusiastic golf writer producing a daily PGA Tour digest email. "
+        "Write in a conversational but informed tone — like a smart friend who really knows golf and betting. "
+        "Use markdown formatting with clear section headers (##). "
+        "Always include a 'Worth Reading' section at the end with at least 3 clickable article links. "
+        "IMPORTANT: Use ONLY the upcoming schedule data provided to describe what tournaments are coming up and in what order. "
+        "Do NOT use your own knowledge of the golf calendar — it may be outdated or wrong. "
+        "Never skip or omit tournaments that appear in the schedule data. "
+        "Do not fabricate stats or players — only use the data provided."
+    )
+    if mode == "leaderboard":
+        return base + (
+            " Today is a tournament day (Thursday-Sunday). Lead with the live leaderboard — "
+            "who's leading, who's making a move, who's falling back. Give it energy and drama. "
+            "IMPORTANT: Players marked 'Not yet started today' have only completed Round 1 — "
+            "do not describe them as currently playing or give them a Round 2 score. "
+            "Only describe players who have a Thru value as actively playing. "
+            "Then include a 'Best Live Bets' section that explains each betting edge play in plain English: "
+            "why DataGolf likes them, what the value is, and which book has the best odds. "
+            "Keep the betting section punchy and actionable."
         )
-    except Exception as e:
-        raise NarratorError(f"Anthropic API call failed: {e}") from e
+    elif mode == "preview_bets":
+        return base + (
+            " Today is Wednesday. Preview the upcoming tournament and then include a 'Best Bets' section. "
+            "For each bet, explain in plain English why DataGolf's model likes this player more than "
+            "the books do — course fit, recent form, strokes gained edge. Make it feel like sharp "
+            "handicapping advice, not just a list of numbers. Note that these are DataGolf model edges "
+            "and not guaranteed — always bet responsibly."
+        )
+    elif mode == "preview":
+        return base + (
+            " Today is Tuesday. Preview the upcoming tournament — the course, the favorites, "
+            "who's in form based on DataGolf win probabilities, and key storylines to follow. "
+            "Use the upcoming schedule provided to accurately describe what tournaments are coming up "
+            "and in what order. Build anticipation for the week ahead."
+        )
+    else:
+        return base + (
+            " Today is Monday. Recap last week's tournament and introduce this week's event. "
+            "Use the upcoming schedule provided to accurately describe what's coming up — "
+            "do not assume tournament order from your training data. "
+            "Note that full DataGolf projections and best bets will be in Tuesday/Wednesday's emails. "
+            "Keep it conversational and set the table for the week."
+        )
 
-    if not response.content:
-        raise NarratorError("Anthropic returned empty content")
 
-    input_tokens = response.usage.input_tokens
-    output_tokens = response.usage.output_tokens
-    logger.info("Token usage - input: %d, output: %d", input_tokens, output_tokens)
+def generate_digest(
+    config: AppConfig,
+    mode: str,
+    current_tournament: Tournament | None,
+    leaderboard: list[LeaderboardPlayer],
+    upcoming_tournaments: list[Tournament],
+    pre_tournament_picks: list[PreTournamentPick],
+    best_bets: list[BettingEdge],
+    live_best_bets: list[BettingEdge],
+    world_rankings: list[RankedPlayer],
+    articles: list[Article],
+    news_stories: list[NewsStory],
+) -> str:
+    prompt = _build_prompt(
+        mode,
+        current_tournament,
+        leaderboard,
+        upcoming_tournaments,
+        pre_tournament_picks,
+        best_bets,
+        live_best_bets,
+        world_rankings,
+        articles,
+        news_stories,
+    )
 
-    block = response.content[0]
-    if not hasattr(block, "text"):
-        raise NarratorError(f"Unexpected response block type: {type(block)}")
-    return block.text
+    client = anthropic.Anthropic(api_key=config.anthropic_api_key)
+
+    message = client.messages.create(
+        model=config.narrator.model,
+        max_tokens=3000,
+        temperature=config.narrator.temperature,
+        system=_get_system_prompt(mode),
+        messages=[{"role": "user", "content": f"Here is today's PGA Tour data:\n\n{prompt}\n\nWrite the daily digest email."}],
+    )
+
+    return message.content[0].text
