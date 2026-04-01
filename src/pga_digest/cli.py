@@ -1,10 +1,12 @@
 import argparse
+import time
 from datetime import date, datetime
 
 from .config import load_config
 from .datagolf_api import (
     get_best_bets,
     get_current_tournament,
+    get_field_players,
     get_live_best_bets,
     get_live_leaderboard,
     get_pre_tournament_picks,
@@ -25,17 +27,19 @@ def get_day_mode() -> str:
         return "preview"
     elif day == 2:
         return "preview_bets"
+    elif day == 3:
+        return "thursday"
     else:
         return "leaderboard"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="PGA Tour daily digest")
+    parser = argparse.ArgumentParser(description="The Fairway Finder — PGA Tour daily digest")
     parser.add_argument("--no-email", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--mode",
-        choices=["recap", "preview", "preview_bets", "leaderboard"],
+        choices=["recap", "preview", "preview_bets", "thursday", "leaderboard"],
         help="Override day mode",
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -46,7 +50,7 @@ def main() -> None:
 
     if args.command == "test-email":
         print("Sending test email...")
-        send_email(config, "PGA Digest — Test Email", "Your PGA Digest email is configured correctly! ⛳")
+        send_email(config, "Fairway Finder — Test Email", "Your Fairway Finder email is configured correctly! ⛳")
         print("Done.")
         return
 
@@ -56,18 +60,23 @@ def main() -> None:
     print("Fetching tournament data...")
     current_tournament = get_current_tournament(config.datagolf_api_key)
     upcoming_tournaments = get_upcoming_tournaments(config.datagolf_api_key)
-    world_rankings = get_world_rankings(config.datagolf_api_key)
+    world_rankings = get_world_rankings(config.datagolf_api_key, top_n=25)
 
     leaderboard = []
-    if mode == "leaderboard" and current_tournament:
+    if mode in ("leaderboard", "thursday") and current_tournament:
         leaderboard = get_live_leaderboard(config.datagolf_api_key)
 
     pre_tournament_picks = []
-    if mode in ("preview", "preview_bets", "leaderboard"):
+    if mode in ("preview", "preview_bets", "thursday", "leaderboard"):
         pre_tournament_picks = get_pre_tournament_picks(config.datagolf_api_key)
 
+    field_players = []
+    if mode in ("preview_bets", "thursday"):
+        print("Fetching field and tee times...")
+        field_players = get_field_players(config.datagolf_api_key)
+
     best_bets = []
-    if mode == "preview_bets":
+    if mode in ("preview_bets", "thursday"):
         print("Fetching pre-tournament betting edges...")
         best_bets = get_best_bets(config.datagolf_api_key)
 
@@ -85,21 +94,22 @@ def main() -> None:
     )
     news_stories = fetch_pga_news(config.anthropic_api_key, tournament_name)
 
-    import time
-    time.sleep(60)
-
     if args.dry_run:
         print(f"\n=== RAW DATA (mode: {mode}) ===")
         print(f"Current tournament: {current_tournament}")
         print(f"Leaderboard entries: {len(leaderboard)}")
         print(f"Upcoming tournaments: {[t.event_name for t in upcoming_tournaments]}")
         print(f"Pre-tournament picks: {len(pre_tournament_picks)}")
+        print(f"Field players with tee times: {len([f for f in field_players if f.tee_time])}")
         print(f"Best bets: {len(best_bets)}")
         print(f"Live best bets: {len(live_best_bets)}")
         print(f"World rankings: {len(world_rankings)}")
         print(f"RSS articles: {len(articles)}")
         print(f"News stories found: {len(news_stories)}")
         return
+
+    print("Waiting 60s before generating digest to avoid rate limits...")
+    time.sleep(60)
 
     print("Generating digest with Claude...")
     digest = generate_digest(
@@ -112,12 +122,13 @@ def main() -> None:
         best_bets=best_bets,
         live_best_bets=live_best_bets,
         world_rankings=world_rankings,
+        field_players=field_players,
         articles=articles,
         news_stories=news_stories,
     )
 
-    today = date.today().strftime("%B %d, %Y")
-    subject = config.email.subject.format(date=today)
+    today = date.today().strftime("%A, %B %-d")
+    subject = f"Fairway Finder — {today}"
 
     if args.no_email:
         print(f"\nSubject: {subject}\n")
