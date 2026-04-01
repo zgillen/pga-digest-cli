@@ -48,11 +48,20 @@ class PreTournamentPick:
 @dataclass
 class BettingEdge:
     player_name: str
-    dg_win_pct: float        # DataGolf model win %
-    book_win_pct: float      # Implied % from best available sportsbook odds
-    edge: float              # dg_win_pct - book_win_pct (positive = value)
-    book_odds: str           # Best American odds available
-    book_name: str           # Which sportsbook
+    dg_win_pct: float
+    book_win_pct: float
+    edge: float
+    book_odds: str
+    book_name: str
+
+
+@dataclass
+class FieldPlayer:
+    player_name: str
+    tee_time: str
+    starting_hole: str
+    partner1: str
+    partner2: str
 
 
 def _get(api_key: str, path: str, params: dict | None = None) -> dict:
@@ -66,25 +75,10 @@ def _get(api_key: str, path: str, params: dict | None = None) -> dict:
 
 
 def _american_to_pct(odds: float) -> float:
-    """Convert American odds to implied win probability."""
     if odds > 0:
         return 100 / (odds + 100)
     else:
         return abs(odds) / (abs(odds) + 100)
-
-
-def _pct_to_american(pct: float) -> str:
-    """Convert win probability to American odds string."""
-    if pct <= 0:
-        return "N/A"
-    if pct >= 1:
-        return "-∞"
-    if pct > 0.5:
-        odds = round(-(pct / (1 - pct)) * 100)
-        return str(odds)
-    else:
-        odds = round(((1 - pct) / pct) * 100)
-        return f"+{odds}"
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
@@ -129,27 +123,27 @@ def get_live_leaderboard(api_key: str) -> list[LeaderboardPlayer]:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
-def get_upcoming_tournament(api_key: str) -> Tournament | None:
+def get_upcoming_tournaments(api_key: str, next_n: int = 3) -> list[Tournament]:
     try:
         data = _get(api_key, "get-schedule", {"tour": "pga", "upcoming_only": "yes"})
         schedule = data.get("schedule", [])
-        if not schedule:
-            return None
-        t = schedule[0]
-        return Tournament(
-            event_name=t.get("event_name", "Unknown"),
-            course=t.get("course", "Unknown"),
-            start_date=t.get("date", ""),
-            end_date=t.get("end_date", t.get("date", "")),
-            tour="PGA",
-        )
+        tournaments = []
+        for t in schedule[:next_n]:
+            tournaments.append(Tournament(
+                event_name=t.get("event_name", "Unknown"),
+                course=t.get("course", "Unknown"),
+                start_date=t.get("date", ""),
+                end_date=t.get("end_date", t.get("date", "")),
+                tour="PGA",
+            ))
+        return tournaments
     except Exception:
-        logger.warning("Failed to fetch upcoming tournament", exc_info=True)
-        return None
+        logger.warning("Failed to fetch upcoming tournaments", exc_info=True)
+        return []
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
-def get_world_rankings(api_key: str, top_n: int = 10) -> list[RankedPlayer]:
+def get_world_rankings(api_key: str, top_n: int = 25) -> list[RankedPlayer]:
     try:
         data = _get(api_key, "preds/get-dg-rankings")
         rankings = []
@@ -169,7 +163,7 @@ def get_world_rankings(api_key: str, top_n: int = 10) -> list[RankedPlayer]:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
-def get_pre_tournament_picks(api_key: str, top_n: int = 10) -> list[PreTournamentPick]:
+def get_pre_tournament_picks(api_key: str, top_n: int = 15) -> list[PreTournamentPick]:
     try:
         data = _get(api_key, "preds/pre-tournament", {"tour": "pga"})
         picks = []
@@ -190,34 +184,47 @@ def get_pre_tournament_picks(api_key: str, top_n: int = 10) -> list[PreTournamen
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
+def get_field_players(api_key: str) -> list[FieldPlayer]:
+    try:
+        data = _get(api_key, "field-updates", {"tour": "pga"})
+        players = []
+        field = data.get("field", [])
+        for entry in field:
+            tee_time = entry.get("teetime", "TBD") or "TBD"
+            starting_hole = str(entry.get("start_hole", "1"))
+            groupings = entry.get("groupings", [])
+            partner1 = groupings[0] if len(groupings) > 0 else ""
+            partner2 = groupings[1] if len(groupings) > 1 else ""
+            players.append(FieldPlayer(
+                player_name=entry.get("player_name", "Unknown"),
+                tee_time=tee_time,
+                starting_hole=f"Hole {starting_hole}",
+                partner1=partner1,
+                partner2=partner2,
+            ))
+        return players
+    except Exception:
+        logger.warning("Failed to fetch field players", exc_info=True)
+        return []
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
 def get_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> list[BettingEdge]:
-    """
-    Compare DataGolf win probabilities against sportsbook odds to find value bets.
-    Returns players where DataGolf thinks they're more likely to win than the books imply.
-    """
     try:
         data = _get(
             api_key,
             "betting-tools/outrights",
             {"tour": "pga", "market": "win", "odds_format": "american"},
         )
-
         edges = []
         for p in data.get("odds", []):
             dg_win = float(p.get("baseline_history_fit", p.get("datagolf_baseline", 0)) or 0)
             if dg_win <= 0:
                 continue
-
-            # Find best (highest implied %) odds across all books
             best_book_pct = 0.0
             best_book_odds = ""
             best_book_name = ""
-
-            # Books DataGolf tracks
-            books = [
-                "draftkings", "fanduel", "betmgm", "caesars",
-                "pinnacle", "bet365", "bovada", "betonline"
-            ]
+            books = ["draftkings", "fanduel", "betmgm", "caesars", "pinnacle", "bet365", "bovada", "betonline"]
             for book in books:
                 odds_val = p.get(book)
                 if odds_val is None:
@@ -227,31 +234,23 @@ def get_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> list[
                     implied_pct = _american_to_pct(odds_float)
                     if implied_pct > best_book_pct:
                         best_book_pct = implied_pct
-                        best_book_odds = (
-                            f"+{int(odds_float)}" if odds_float > 0 else str(int(odds_float))
-                        )
+                        best_book_odds = f"+{int(odds_float)}" if odds_float > 0 else str(int(odds_float))
                         best_book_name = book.capitalize()
                 except (ValueError, TypeError):
                     continue
-
             if best_book_pct <= 0:
                 continue
-
             edge = dg_win - best_book_pct
             if edge >= min_edge:
-                edges.append(
-                    BettingEdge(
-                        player_name=p.get("player_name", "Unknown"),
-                        dg_win_pct=dg_win,
-                        book_win_pct=best_book_pct,
-                        edge=edge,
-                        book_odds=best_book_odds,
-                        book_name=best_book_name,
-                    )
-                )
-
+                edges.append(BettingEdge(
+                    player_name=p.get("player_name", "Unknown"),
+                    dg_win_pct=dg_win,
+                    book_win_pct=best_book_pct,
+                    edge=edge,
+                    book_odds=best_book_odds,
+                    book_name=best_book_name,
+                ))
         return sorted(edges, key=lambda x: x.edge, reverse=True)[:top_n]
-
     except Exception:
         logger.warning("Failed to fetch betting edges", exc_info=True)
         return []
@@ -259,12 +258,7 @@ def get_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> list[
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
 def get_live_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> list[BettingEdge]:
-    """
-    During a tournament, compare DataGolf live win probabilities against
-    live sportsbook outright odds to find in-play value.
-    """
     try:
-        # Get DataGolf live win probabilities
         live_data = _get(api_key, "preds/in-play", {"tour": "pga", "odds_format": "percent"})
         live_probs: dict[str, float] = {}
         for p in live_data.get("data", []):
@@ -272,33 +266,23 @@ def get_live_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> 
             win = p.get("win", 0)
             if name and win:
                 live_probs[name] = float(win)
-
         if not live_probs:
             return []
-
-        # Get current sportsbook outright odds
         book_data = _get(
             api_key,
             "betting-tools/outrights",
             {"tour": "pga", "market": "win", "odds_format": "american"},
         )
-
         edges = []
-        books = [
-            "draftkings", "fanduel", "betmgm", "caesars",
-            "pinnacle", "bet365", "bovada", "betonline"
-        ]
-
+        books = ["draftkings", "fanduel", "betmgm", "caesars", "pinnacle", "bet365", "bovada", "betonline"]
         for p in book_data.get("odds", []):
             name = p.get("player_name", "")
             dg_win = live_probs.get(name, 0)
             if dg_win <= 0:
                 continue
-
             best_book_pct = 0.0
             best_book_odds = ""
             best_book_name = ""
-
             for book in books:
                 odds_val = p.get(book)
                 if odds_val is None:
@@ -308,51 +292,23 @@ def get_live_best_bets(api_key: str, top_n: int = 5, min_edge: float = 0.02) -> 
                     implied_pct = _american_to_pct(odds_float)
                     if implied_pct > best_book_pct:
                         best_book_pct = implied_pct
-                        best_book_odds = (
-                            f"+{int(odds_float)}" if odds_float > 0 else str(int(odds_float))
-                        )
+                        best_book_odds = f"+{int(odds_float)}" if odds_float > 0 else str(int(odds_float))
                         best_book_name = book.capitalize()
                 except (ValueError, TypeError):
                     continue
-
             if best_book_pct <= 0:
                 continue
-
             edge = dg_win - best_book_pct
             if edge >= min_edge:
-                edges.append(
-                    BettingEdge(
-                        player_name=name,
-                        dg_win_pct=dg_win,
-                        book_win_pct=best_book_pct,
-                        edge=edge,
-                        book_odds=best_book_odds,
-                        book_name=best_book_name,
-                    )
-                )
-
+                edges.append(BettingEdge(
+                    player_name=name,
+                    dg_win_pct=dg_win,
+                    book_win_pct=best_book_pct,
+                    edge=edge,
+                    book_odds=best_book_odds,
+                    book_name=best_book_name,
+                ))
         return sorted(edges, key=lambda x: x.edge, reverse=True)[:top_n]
-
     except Exception:
         logger.warning("Failed to fetch live betting edges", exc_info=True)
-        return []
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
-def get_upcoming_tournaments(api_key: str, next_n: int = 3) -> list[Tournament]:
-    """Get the next several upcoming tournaments so Claude has accurate schedule context."""
-    try:
-        data = _get(api_key, "get-schedule", {"tour": "pga", "upcoming_only": "yes"})
-        schedule = data.get("schedule", [])
-        tournaments = []
-        for t in schedule[:next_n]:
-            tournaments.append(Tournament(
-                event_name=t.get("event_name", "Unknown"),
-                course=t.get("course", "Unknown"),
-                start_date=t.get("date", ""),
-                end_date=t.get("end_date", t.get("date", "")),
-                tour="PGA",
-            ))
-        return tournaments
-    except Exception:
-        logger.warning("Failed to fetch upcoming tournaments", exc_info=True)
         return []
