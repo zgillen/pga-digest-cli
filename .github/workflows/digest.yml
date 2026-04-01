@@ -14,6 +14,7 @@ on:
           - recap
           - preview
           - preview_bets
+          - thursday
           - leaderboard
         default: ""
       dry_run:
