@@ -16,6 +16,8 @@ class Tournament:
     start_date: str
     end_date: str
     tour: str
+    current_round: int
+    round_status: str
 
 
 @dataclass
@@ -94,6 +96,8 @@ def get_current_tournament(api_key: str) -> Tournament | None:
             start_date=info.get("start_date", ""),
             end_date=info.get("end_date", ""),
             tour="PGA",
+            current_round=int(info.get("current_round", 1)),
+            round_status=info.get("round_status", "Unknown"),
         )
     except Exception:
         logger.warning("Failed to fetch current tournament", exc_info=True)
@@ -135,6 +139,8 @@ def get_upcoming_tournaments(api_key: str, next_n: int = 3) -> list[Tournament]:
                 start_date=t.get("date", ""),
                 end_date=t.get("end_date", t.get("date", "")),
                 tour="PGA",
+                current_round=0,
+                round_status="Upcoming",
             ))
         return tournaments
     except Exception:
