@@ -102,7 +102,8 @@ def _build_prompt(
     elif mode == "thursday":
         if current_tournament:
             sections.append(
-                f"TOURNAMENT UNDERWAY: {current_tournament.event_name} at {current_tournament.course}"
+                f"TOURNAMENT UNDERWAY: {current_tournament.event_name} at {current_tournament.course} "
+                f"(Round {current_tournament.current_round} — {current_tournament.round_status})"
             )
         if field_players:
             pairing_lines = [
@@ -133,8 +134,25 @@ def _build_prompt(
                     f"  {p.position}. {p.player_name} — {_fmt_score(p.total)} total "
                     f"(Today: {_fmt_score(p.today)}, {thru_str}) [{rounds_str}]"
                 )
+
+            # Build status note based on round status
+            status = current_tournament.round_status.lower()
+            if any(word in status for word in ("suspend", "delay", "weather", "horn", "darkness")):
+                status_note = (
+                    f"\nROUND STATUS: SUSPENDED/DELAYED — Round {current_tournament.current_round} "
+                    "has been interrupted. Scores shown reflect where play was halted and are NOT "
+                    "final round scores. Some players may be mid-round. Do not describe any round "
+                    "as complete unless a player's thru value shows 'F'."
+                )
+            elif "complete" in status or "official" in status:
+                status_note = f"\nROUND STATUS: Round {current_tournament.current_round} is complete."
+            else:
+                status_note = ""
+
             sections.append(
-                f"LIVE LEADERBOARD: {current_tournament.event_name} at {current_tournament.course}\n"
+                f"LIVE LEADERBOARD: {current_tournament.event_name} at {current_tournament.course} "
+                f"(Round {current_tournament.current_round} — {current_tournament.round_status})"
+                + status_note + "\n"
                 "NOTE: Players showing 'Not yet started today' have only completed the previous round. "
                 "Do not describe them as currently playing or assign them a score for today.\n"
                 + "\n".join(lb_lines)
@@ -217,6 +235,9 @@ def _get_system_prompt(mode: str) -> str:
             "who's falling back. Give it energy and drama. "
             "IMPORTANT: Players marked 'Not yet started today' have only completed previous rounds — "
             "do not describe them as currently playing or give them a score for today. "
+            "If the round status shows SUSPENDED or DELAYED, make that the lead — "
+            "explain that play has been halted, scores are incomplete, and set expectations "
+            "for when play might resume. Never treat suspended scores as final positions. "
             "Then include a 'Best Live Bets' section explaining each value play in plain English."
         )
     return base
