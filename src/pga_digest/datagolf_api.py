@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -190,25 +191,62 @@ def get_pre_tournament_picks(api_key: str, top_n: int = 15) -> list[PreTournamen
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
-def get_field_players(api_key: str) -> list[FieldPlayer]:
+def get_field_players(api_key: str, round_num: int = 1) -> list[FieldPlayer]:
+    """Fetch field with tee times, inferring pairings from shared tee times."""
     try:
         data = _get(api_key, "field-updates", {"tour": "pga"})
-        players = []
         field = data.get("field", [])
+
+        # Build tee time groups — players sharing same teetime+hole are paired
+        teetime_groups: dict[tuple, list[str]] = {}
         for entry in field:
-            tee_time = entry.get("teetime", "TBD") or "TBD"
-            starting_hole = str(entry.get("start_hole", "1"))
-            groupings = entry.get("groupings", [])
-            partner1 = groupings[0] if len(groupings) > 0 else ""
-            partner2 = groupings[1] if len(groupings) > 1 else ""
-            players.append(FieldPlayer(
-                player_name=entry.get("player_name", "Unknown"),
-                tee_time=tee_time,
-                starting_hole=f"Hole {starting_hole}",
-                partner1=partner1,
-                partner2=partner2,
-            ))
+            player_name = entry.get("player_name", "Unknown")
+            teetimes = entry.get("teetimes", [])
+            for tt in teetimes:
+                if tt.get("round_num") != round_num:
+                    continue
+                teetime = tt.get("teetime", "TBD") or "TBD"
+                start_hole = str(tt.get("start_hole", "1"))
+                key = (teetime, start_hole)
+                if key not in teetime_groups:
+                    teetime_groups[key] = []
+                teetime_groups[key].append(player_name)
+
+        # Build FieldPlayer list
+        players = []
+        for entry in field:
+            player_name = entry.get("player_name", "Unknown")
+            teetimes = entry.get("teetimes", [])
+            for tt in teetimes:
+                if tt.get("round_num") != round_num:
+                    continue
+                teetime = tt.get("teetime", "TBD") or "TBD"
+                start_hole = str(tt.get("start_hole", "1"))
+                key = (teetime, start_hole)
+                groupmates = [p for p in teetime_groups.get(key, []) if p != player_name]
+                partner1 = groupmates[0] if len(groupmates) > 0 else ""
+                partner2 = groupmates[1] if len(groupmates) > 1 else ""
+
+                # Format tee time from "2026-04-09 13:08" to "1:08 PM"
+                try:
+                    dt = datetime.strptime(teetime, "%Y-%m-%d %H:%M")
+                    teetime_fmt = dt.strftime("%-I:%M %p")
+                except Exception:
+                    teetime_fmt = teetime
+
+                players.append(FieldPlayer(
+                    player_name=player_name,
+                    tee_time=teetime_fmt,
+                    starting_hole=f"Hole {start_hole}",
+                    partner1=partner1,
+                    partner2=partner2,
+                ))
+                break
+
+        # Sort chronologically
+        players.sort(key=lambda p: p.tee_time)
         return players
+
     except Exception:
         logger.warning("Failed to fetch field players", exc_info=True)
         return []
