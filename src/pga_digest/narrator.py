@@ -218,7 +218,11 @@ def _get_system_prompt(mode: str) -> str:
             " Today is Wednesday. Cover the tee times and notable pairings to watch in Round 1. "
             "Then include a 'Best Bets' section — for each bet explain in plain English why "
             "DataGolf's model likes this player more than the books do. "
-            "Make it feel like sharp handicapping advice. Always bet responsibly."
+            "Make it feel like sharp handicapping advice. Always bet responsibly. "
+            "IMPORTANT: Only write about facts present in the data provided. "
+            "Do NOT use your training knowledge to add color, anecdotes, or background "
+            "about the tournament, venue, players, or recent events that is not in the data. "
+            "If it is not in the data, do not include it."
         )
     elif mode == "thursday":
         return base + (
