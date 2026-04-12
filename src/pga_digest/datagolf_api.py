@@ -32,6 +32,16 @@ class LeaderboardPlayer:
 
 
 @dataclass
+class LeaderboardPlayerSG:
+    player_name: str
+    sg_total: float
+    sg_ott: float
+    sg_app: float
+    sg_putt: float
+    sg_arg: float
+
+
+@dataclass
 class RankedPlayer:
     rank: int
     player_name: str
@@ -128,6 +138,35 @@ def get_live_leaderboard(api_key: str) -> list[LeaderboardPlayer]:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
+def get_live_strokes_gained(api_key: str) -> list[LeaderboardPlayerSG]:
+    """Fetch live strokes gained stats for current tournament."""
+    try:
+        data = _get(
+            api_key,
+            "preds/live-tournament-stats",
+            {
+                "stats": "sg_putt,sg_arg,sg_app,sg_ott,sg_total",
+                "round": "event_cumulative",
+                "display": "value",
+            },
+        )
+        players = []
+        for p in data.get("live_stats", []):
+            players.append(LeaderboardPlayerSG(
+                player_name=p.get("player_name", "Unknown"),
+                sg_total=float(p.get("sg_total", 0) or 0),
+                sg_ott=float(p.get("sg_ott", 0) or 0),
+                sg_app=float(p.get("sg_app", 0) or 0),
+                sg_putt=float(p.get("sg_putt", 0) or 0),
+                sg_arg=float(p.get("sg_arg", 0) or 0),
+            ))
+        return sorted(players, key=lambda x: x.sg_total, reverse=True)
+    except Exception:
+        logger.warning("Failed to fetch live strokes gained", exc_info=True)
+        return []
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
 def get_upcoming_tournaments(api_key: str, next_n: int = 3) -> list[Tournament]:
     try:
         data = _get(api_key, "get-schedule", {"tour": "pga", "upcoming_only": "yes"})
@@ -197,7 +236,6 @@ def get_field_players(api_key: str, round_num: int = 1) -> list[FieldPlayer]:
         data = _get(api_key, "field-updates", {"tour": "pga"})
         field = data.get("field", [])
 
-        # Build tee time groups — players sharing same teetime+hole are paired
         teetime_groups: dict[tuple, list[str]] = {}
         for entry in field:
             player_name = entry.get("player_name", "Unknown")
@@ -212,7 +250,6 @@ def get_field_players(api_key: str, round_num: int = 1) -> list[FieldPlayer]:
                     teetime_groups[key] = []
                 teetime_groups[key].append(player_name)
 
-        # Build FieldPlayer list
         players = []
         for entry in field:
             player_name = entry.get("player_name", "Unknown")
@@ -227,7 +264,6 @@ def get_field_players(api_key: str, round_num: int = 1) -> list[FieldPlayer]:
                 partner1 = groupmates[0] if len(groupmates) > 0 else ""
                 partner2 = groupmates[1] if len(groupmates) > 1 else ""
 
-                # Format tee time from "2026-04-09 13:08" to "1:08 PM"
                 try:
                     dt = datetime.strptime(teetime, "%Y-%m-%d %H:%M")
                     teetime_fmt = dt.strftime("%-I:%M %p")
@@ -243,7 +279,6 @@ def get_field_players(api_key: str, round_num: int = 1) -> list[FieldPlayer]:
                 ))
                 break
 
-        # Sort chronologically
         players.sort(key=lambda p: p.tee_time)
         return players
 
