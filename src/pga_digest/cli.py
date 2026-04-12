@@ -9,6 +9,7 @@ from .datagolf_api import (
     get_field_players,
     get_live_best_bets,
     get_live_leaderboard,
+    get_live_strokes_gained,
     get_pre_tournament_picks,
     get_upcoming_tournaments,
     get_world_rankings,
@@ -63,15 +64,18 @@ def main() -> None:
     world_rankings = get_world_rankings(config.datagolf_api_key, top_n=25)
 
     leaderboard = []
+    strokes_gained = []
     if mode in ("leaderboard", "thursday") and current_tournament:
         leaderboard = get_live_leaderboard(config.datagolf_api_key)
+        print("Fetching live strokes gained...")
+        strokes_gained = get_live_strokes_gained(config.datagolf_api_key)
 
     pre_tournament_picks = []
     if mode in ("preview", "preview_bets", "thursday", "leaderboard"):
         pre_tournament_picks = get_pre_tournament_picks(config.datagolf_api_key)
 
     field_players = []
-    if mode in ("preview_bets", "thursday"):
+    if mode == "preview_bets":
         print("Fetching field and tee times...")
         field_players = get_field_players(config.datagolf_api_key)
 
@@ -98,6 +102,7 @@ def main() -> None:
         print(f"\n=== RAW DATA (mode: {mode}) ===")
         print(f"Current tournament: {current_tournament}")
         print(f"Leaderboard entries: {len(leaderboard)}")
+        print(f"Strokes gained entries: {len(strokes_gained)}")
         print(f"Upcoming tournaments: {[t.event_name for t in upcoming_tournaments]}")
         print(f"Pre-tournament picks: {len(pre_tournament_picks)}")
         print(f"Field players with tee times: {len([f for f in field_players if f.tee_time])}")
@@ -117,6 +122,7 @@ def main() -> None:
         mode=mode,
         current_tournament=current_tournament,
         leaderboard=leaderboard,
+        strokes_gained=strokes_gained,
         upcoming_tournaments=upcoming_tournaments,
         pre_tournament_picks=pre_tournament_picks,
         best_bets=best_bets,
